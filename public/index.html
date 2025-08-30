@@ -1,0 +1,130 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JS LLM Agent (GPT via aipipe)</title>
+  <style>
+    :root { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu; }
+    body { margin: 0; padding: 2rem; background: #0b1020; color: #eef1f7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-weight: 700; letter-spacing: .2px; margin: 0 0 1rem; }
+    form { display: flex; gap: .75rem; }
+    textarea { flex: 1; min-height: 120px; padding: .75rem; border-radius: 12px; border: 1px solid #2a3354; background: #0f1530; color: inherit; }
+    button { padding: .8rem 1.1rem; border-radius: 12px; border: 0; background: #4a67ff; color: white; font-weight: 600; cursor: pointer; }
+    button[disabled] { opacity: .65; cursor: not-allowed; }
+    .chat { margin-top: 1.5rem; border: 1px solid #2a3354; border-radius: 16px; padding: 1rem; background: #101737; }
+    .msg { margin-bottom: 1rem; }
+    .msg.user { color: #a9f; }
+    .msg.assistant { color: #9f9; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Chat with GPT (via aipipe)</h1>
+    <form id="chat">
+      <textarea id="prompt" placeholder="Type your message…" required></textarea>
+      <button id="send" type="submit">Send</button>
+    </form>
+
+```
+<div class="chat" id="chatlog"></div>
+```
+
+  </div>
+
+  <script>
+    const form = document.getElementById('chat');
+    const promptEl = document.getElementById('prompt');
+    const chatlog = document.getElementById('chatlog');
+
+    const messages = [
+      { role: "system", content: "You are a helpful assistant." }
+    ];
+
+    function addMessage(role, content) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+      div.textContent = (role === 'user' ? 'You: ' : 'Assistant: ') + content;
+      chatlog.appendChild(div);
+      chatlog.scrollTop = chatlog.scrollHeight;
+    }
+
+    async function streamChat() {
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // If aipipe requires an API key:
+          "Authorization": "Bearer YOUR_KEY"
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages,
+          stream: true
+        })
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+      let assistantReply = "";
+
+      // create placeholder div for streaming
+      const div = document.createElement('div');
+      div.className = 'msg assistant';
+      div.textContent = 'Assistant: ';
+      chatlog.appendChild(div);
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const chunk = buffer.slice(0, idx).trim();
+          buffer = buffer.slice(idx + 2);
+
+          if (chunk.startsWith("data:")) {
+            const data = chunk.slice(5).trim();
+            if (data === "[DONE]") {
+              messages.push({ role: "assistant", content: assistantReply });
+              return;
+            }
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices[0].delta?.content;
+              if (delta) {
+                assistantReply += delta;
+                div.textContent = 'Assistant: ' + assistantReply;
+              }
+            } catch (err) {
+              console.error("Bad chunk", err, data);
+            }
+          }
+        }
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const prompt = promptEl.value.trim();
+      if (!prompt) return;
+
+      addMessage('user', prompt);
+      messages.push({ role: 'user', content: prompt });
+      promptEl.value = '';
+
+      try {
+        await streamChat();
+      } catch (err) {
+        console.error(err);
+        addMessage('assistant', '[Error: see console]');
+      }
+    });
+  </script>
+
+</body>
+</html>
