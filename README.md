@@ -7,7 +7,7 @@ It demonstrates:
 - Calling external **tools** dynamically (Google Search, AI Pipe API, JS code execution).  
 - Communicating with an Express backend that proxies API calls.  
 
-The goal is to keep the code small, hackable, and easy to extend.
+The goal is to keep the code small, and easy to extend.
 
 ---
 
